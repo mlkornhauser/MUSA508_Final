@@ -66,16 +66,16 @@ q5 <- function(variable) {as.factor(ntile(variable, 5))}
 
 ################
 # DATA WRANGLING
-################
+################ 
 
 #Load & project
-nhoods <- st_read("https://raw.githubusercontent.com/mlkornhauser/MUSA508_Final/master/data/neighbourhoods.geojson", quiet = TRUE)
+nhoods <- st_read('C:/Users/eojen/Documents/GitHub/Final Assign/neighbourhoods.geojson', quiet = TRUE)
 nhoods.sf <-
   nhoods %>%
   st_as_sf() %>%
   st_transform('EPSG:28992')
-apartments <- read.csv('./data/AmsterdamApts.csv')
-airbnb <- read.csv('./data/listings_details.csv') 
+apartments <- read.csv('C:/Users/eojen/Documents/GitHub/Final Assign/AmsterdamApts.csv')
+airbnb <- read.csv('C:/Users/eojen/Documents/GitHub/Final Assign/listings_details.csv') 
 airbnb.sf <- 
   airbnb %>% 
   st_as_sf(coords = c("longitude", "latitude"), crs = 4326, agr = "constant") %>%
@@ -167,6 +167,16 @@ airbnb %>%
 colnames(airbnb)
 airbnb$amenities
 
+#barplot of Neighborhood
+
+airbnb%>% 
+  dplyr::select(price,neighbourhood) %>%
+  gather(Variable, Value, -price) %>% 
+  ggplot(aes(Value, price)) +
+  geom_bar(position = "dodge", stat = "summary", fun.y = "mean") +
+  facet_wrap(~Variable, ncol = 1, scales = "free") +
+  labs(title = "Price as a function of\ncategorical variables", y = "Mean_Price") +
+  plotTheme() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 #Need to create dummy variables for the amenities
 
 hist(airbnb.sf$bedrooms)
@@ -185,13 +195,13 @@ colnames(airbnb.sf)
 geom_point(data = airports, aes(x = lon, y = lat, size = alt),
            fill = "grey", color = "black", alpha = .2)
 
-ggplot(data = nhoods.sf, fill = "grey60") +
+ggplot(data = nhoods, fill = "grey60") +
   geom_sf(data = airbnb.sf, 
           aes(colour=as.numeric(price), alpha = .2))
 
-
+head(airbnb.sf)
 ggplot() +
-  geom_sf(data = miami.base.sf, fill = "grey60") +
+  geom_sf(data = nhoods.sf, fill = "grey60") +
   geom_sf(data = sales, aes(colour = q5(SalePrice)), 
           show.legend = "point", size = .75) +
   scale_colour_manual(values = palette5,
@@ -205,3 +215,85 @@ plot(airbnb.sf$geometry)
 ggplot() +
   geom_sf(data = postcodes4.sf) +
   geom_sf(data = airbnb.sf)
+
+####availablities
+airbnb %>%
+  summarize(averagetime = mean(as.numeric(availability_30))) %>%
+  ggplot(aes(averagetime, fill = averagetime)) +
+  geom_bar(stat="identity", position = "dodge") +
+  labs(title="Mean priors by race", y = "Mean Priors", x = "Race") +
+  scale_fill_manual(values = palette5, name = "Recidivism") +
+  plotTheme() + theme(legend.position = "none") 
+
+
+hist(airbnb$availability_30)
+mean(airbnb$availability_30)
+hist(airbnb$availability_60)
+mean(airbnb$availability_60)
+hist(airbnb$availability_90)
+mean(airbnb$availability_90)
+hist(airbnb$availability_365)
+mean(airbnb$availability_365)
+
+#square feet dustribution 
+hist(airbnb$square_feet)
+
+#map of prices 
+ggplot() +
+  geom_sf(data = airbnb.sf, aes(fill = q5(price), color = q5(price))) +
+  scale_fill_manual(values = c("#d7191c", "#fdae61", "#ffffbf", "#a6d96a", "#1a9641"),
+                    name = "Home Sale Price\n(Quintile Breaks)",
+                    labels = qBr(airbnb.sf, "price")) +
+  scale_color_manual(values = c("#d7191c", "#fdae61", "#ffffbf", "#a6d96a", "#1a9641"),
+                     name = "Home Sale Price\n(Quintile Breaks)",
+                     labels = qBr(airbnb.sf, "SalePrice")) +
+  labs(title = "Home Sale Price", subtitle = "Miami, FL") +
+  mapTheme() + theme(plot.title = element_text(size=22))
+
+#corr matrix
+library(ggcorrplot)
+
+corr_matrix2 <- airbnb %>%
+  dplyr::select(price,
+                cleaning_fee,
+                minimum_nights,
+                guests_included, 
+                maximum_nights, 
+                number_of_reviews,
+               review_scores_rating,
+                reviews_per_month,
+                availability_30,
+               availability_60,
+               availability_90,
+               availability_365,
+                extra_people,
+                accommodates,
+                bathrooms,
+               bedrooms,
+                beds,
+               host_listings_count,
+                square_feet) %>%
+  na.omit()
+
+cor(corr_matrix2 , use="pairwise.complete.obs")
+
+
+
+
+corr_matrix2 <- as.numeric(corr_matrix2)
+lapply(corr_matrix, as.numeric)
+
+typeof(corr_matrix)
+ggcorrplot(
+  round(cor(corr_matrix2), 1), 
+  p.mat = cor_pmat(corr_matrix2),
+  colors = c("#25CB10", "white", "#FA7800"),
+  type="lower",
+  insig = "blank") +  
+  labs(title = "Correlation across numeric variables") 
+
+
+
+
+
+
