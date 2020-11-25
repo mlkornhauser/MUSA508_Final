@@ -115,7 +115,7 @@ airbnb <-
          SmokeDetect = as.numeric(grepl('Smoke detector', airbnb$amenities)),
          CO2 = as.numeric(grepl('Carbon monoxide detector', airbnb$amenities)),
          FireEx = as.numeric(grepl('Fire extinguisher', airbnb$amenities)),
-         
+         Lighthouse = as.numeric(grepl('Lighthouse', airbnb$property_type)),
   )
 
 
@@ -131,12 +131,17 @@ airbnb <- subset(airbnb, price_no < 1000)
 airbnb <- subset(airbnb, calculated_host_listings_count < 20)
 boxplot(airbnb$price_no)
 
+airbnb.sf <- 
+  airbnb %>% 
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326, agr = "constant") %>%
+  st_transform('EPSG:28992') 
+
 #Airbnb
 View(airbnb.sf)
 
 ggplot() +
   geom_sf(data = nhoods.sf, fill = "grey80") +
-  geom_sf(data = airbnb.sf, aes(colour=q5(price_no)))
+  geom_sf(data = airbnb.sf, aes(colour=(price_no)))
 
 ggplot() +
   geom_sf(data = nhoods.sf, fill = "grey80") +
@@ -255,6 +260,7 @@ library(ggcorrplot)
 
 corr_matrix2 <- airbnb %>%
   dplyr::select(price,
+                reviews_per_month, 
                 cleaning_fee,
                 minimum_nights,
                 guests_included, 
@@ -280,10 +286,9 @@ cor(corr_matrix2 , use="pairwise.complete.obs")
 
 
 
-corr_matrix2 <- as.numeric(corr_matrix2)
-lapply(corr_matrix, as.numeric)
 
-typeof(corr_matrix)
+
+
 ggcorrplot(
   round(cor(corr_matrix2), 1), 
   p.mat = cor_pmat(corr_matrix2),
@@ -292,8 +297,47 @@ ggcorrplot(
   insig = "blank") +  
   labs(title = "Correlation across numeric variables") 
 
+###super host categories 
+airbnb %>%
+  dplyr::select(price,host_is_superhost) %>%
+  gather(Variable, value, -host_is_superhost) %>%
+  na.omit()%>% ###did nothing 
+  ggplot(aes(host_is_superhost, value, fill=host_is_superhost)) + 
+  geom_bar(position = "dodge", stat = "summary", fun = "mean") + 
+  facet_wrap(~Variable, scales = "free") +
+  labs(title = "Mean Prices based on SuperHost Status", y = "Mean_Price") +
+  plotTheme() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Mean Price for each Property Type
+airbnb %>%
+  dplyr::select(price,property_type) %>%
+  gather(Variable, value, -property_type) %>%
+  na.omit()%>% ###did nothing 
+  ggplot(aes(property_type, value)) + 
+  geom_bar(position = "dodge", stat = "summary", fun = "mean") + 
+  facet_wrap(~Variable, scales = "free") +
+  labs(title = "Mean Prices based on Property Type", y = "Mean_Price") +
+  plotTheme() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
+airbnb%>% 
+  dplyr::select(price,neighbourhood) %>%
+  gather(Variable, Value, -price) %>% 
+  ggplot(aes(Value, price)) +
+  geom_bar(position = "dodge", stat = "summary", fun.y = "mean") +
+  facet_wrap(~Variable, ncol = 1, scales = "free") +
+  labs(title = "Price as a function of\ncategorical variables", y = "Mean_Price") +
+  plotTheme() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+####plot to see where lighthouses are
+
+airbnb.sf <- 
+  airbnb.sf %>%
+  mutate(Lighthouse = as.numeric(grepl('Lighthouse', airbnb.sf$property_type)),)
+
+ggplot() + 
+  geom_sf(data = nhoods.sf, fill = "grey80") +
+  geom_sf(data = airbnb.sf, aes(colour=Lighthouse)) #only one wow 
 
 
 
