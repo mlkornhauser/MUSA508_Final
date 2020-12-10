@@ -131,7 +131,7 @@ apartmentsPC6 <- apartmentsPC6 %>%
   st_centroid() %>%
   mutate(price = house_price*1.21) %>% #convert variables to USD, feet
   dplyr::select('price', 'bedrooms', 'geometry') %>%
-  mutate(Type = "Long-term") %>% 
+  mutate(Type = "Long-Term") %>% 
   st_as_sf() %>%
   na.omit()
 
@@ -145,6 +145,10 @@ df <- st_join(df, nhoods.sf) %>%
   dplyr::select(-Opp_m2, ) %>%
   na.omit() %>%
   st_as_sf()
+
+df <- subset(df, bedrooms < 4)
+df <- subset(df, price > 0)
+df <- subset(df, price < 1000)
 
 ########################
 # NEIGHBORHOOD VARIABLES
@@ -283,6 +287,15 @@ top20hoods <-
   pull(neighborhood)
 top20hoods <- top20hoods[1:20]
 
+airbnb$accommodates_no <- as.numeric(as.character(airbnb$accommodates))
+
+accommodates <-
+  airbnb %>% 
+  filter(bedrooms >0) %>%
+  dplyr::select(bedrooms, accommodates) %>%
+  group_by(bedrooms) %>%
+  summarise(mean_accomodates = mean(accommodates))
+
 df <- 
   df %>%
   mutate(TopTen = ifelse(neighborhood %in% top10hoods, 1, 0),
@@ -295,31 +308,31 @@ df <-
   df %>%
   mutate(bars_nn = nn_function(st_coordinates
                                 (st_centroid(df)),
-                                st_coordinates(st_centroid(bars.sf)), 3),
+                                st_coordinates(st_centroid(bars.sf)), 1),
          bikestands_nn = nn_function(st_coordinates
                                       (st_centroid(df)), 
-                                      st_coordinates(st_centroid(trammetro.sf)), 3),
+                                      st_coordinates(st_centroid(trammetro.sf)), 1),
          museums_nn = nn_function(st_coordinates
                                    (st_centroid(df)), 
-                                   st_coordinates(st_centroid(museums.sf)), 3),
+                                   st_coordinates(st_centroid(museums.sf)), 1),
          restaurants_nn = nn_function(st_coordinates
                                        (st_centroid(df)), 
-                                       st_coordinates(st_centroid(restaurants.sf)), 3),
+                                       st_coordinates(st_centroid(restaurants.sf)), 1),
          parks_nn = nn_function(st_coordinates
                                  (st_centroid(df)), 
-                                 st_coordinates(st_centroid(parks.sf)), 3),
+                                 st_coordinates(st_centroid(parks.sf)), 1),
          tram_nn = nn_function(st_coordinates
                                 (st_centroid(df)), 
-                                st_coordinates(st_centroid(trammetro.sf)), 3),
+                                st_coordinates(st_centroid(trammetro.sf)), 1),
          universities_nn = nn_function(st_coordinates
                                      (st_centroid(df)), 
-                                     st_coordinates(st_centroid(universities.sf)), 3),
+                                     st_coordinates(st_centroid(universities.sf)), 1),
          wallart_nn = nn_function(st_coordinates
                                    (st_centroid(df)), 
-                                   st_coordinates(st_centroid(wallart.sf)), 3),
+                                   st_coordinates(st_centroid(wallart.sf)), 1),
          oldtrees_nn = nn_function(st_coordinates
                                     (st_centroid(df)), 
-                                    st_coordinates(st_centroid(oldtrees.sf)), 3),
+                                    st_coordinates(st_centroid(oldtrees.sf)), 1),
          AmsBinnen_nn = nn_function(st_coordinates
                                    (st_centroid(df)), 
                                    st_coordinates(st_centroid(Ams_Binnen.sf)), 1),
@@ -344,6 +357,24 @@ neighborList10 <- knn2nb(knearneigh(coords, 10))
 spatialWeights10 <- nb2listw(neighborList10, style="W")
 df$lagPrice10 <- lag.listw(spatialWeights10, df$price)
 
+#Variable Manipulations
+df$logprice <- log(df$price)
+df$museums2 <- df$museums_nn^2
+df$museums3 <- df$museums_nn^3
+df$logmuseum <- log(df$museums_nn)
+df$parks2 <- df$parks_nn^2
+df$logparks <- log(df$parks_nn)
+df$logrestaurants <- log(df$restaurants_nn)
+df$logbars <- log(df$bars_nn)
+df$logwallart <- log(df$wallart_nn)
+df$logbikestand <- log(df$bikestands_nn)
+df$logtram <- log(df$tram_nn)
+df$loguniversities <- log(df$universities_nn)
+df$logoldtrees <- log(df$oldtrees_nn)
+df$logAmsBinnen <- log(df$AmsBinnen_nn)
+df$logOudZuid <- log(df$OudZuid_nn)
+df$logPlanZuid <- log(df$PlanZuid_nn)
+df$logdevnhoods <- log(df$devnhoods_nn)
 
 #######################
 # EXPLORATORY ANALYSIS
@@ -352,13 +383,21 @@ numericVars <-
   select_if(df, is.numeric) %>%
   st_drop_geometry() %>%
   dplyr::select(price,
-                bedrooms,
-                lagPrice5,
-                lagPrice10,
-                TopTen,
-                OverThreeBeds,
-                OverFiveBeds,
-                universities_nn) %>%
+                bars_nn,
+                bikestands_nn,
+                museums_nn,
+                logparks,
+                restaurants_nn,
+                parks_nn,
+                logmuseum,
+                tram_nn,
+                universities_nn,
+                wallart_nn,
+                oldtrees_nn,
+                AmsBinnen_nn,
+                OudZuid_nn,
+                PlanZuid_nn, 
+                devnhoods_nn) %>%
   na.omit()
 
 ggcorrplot(
@@ -370,20 +409,44 @@ ggcorrplot(
   labs(title = "Correlation across numeric variables",
        subtitle = "Figure X.X")
 
+boxplot(df$bedrooms)
+
 #---Scatterplots
 correlation.long <-
   st_drop_geometry(df) %>%
+  filter(bedrooms < 6) %>%
   dplyr::select(price,
                 bedrooms,
                 lagPrice5,
                 lagPrice10,
-                TopTen,
-                TopTwenty,
-                OverThreeBeds, 
-                OverFiveBeds,
-                AmsBinnen_nn) %>%
-  gather(Variable, Value, -price)
-
+                bars_nn,
+                logbars,
+                restaurants_nn,
+                logrestaurants,
+                bikestands_nn,
+                logbikestand,
+                museums_nn,
+                logmuseum,
+                parks_nn,
+                parks2,
+                logparks,
+                tram_nn,
+                logtram,
+                universities_nn,
+                loguniversities,
+                oldtrees_nn,
+                logoldtrees,
+                AmsBinnen_nn,
+                logAmsBinnen,
+                OudZuid_nn,
+                logOudZuid,
+                PlanZuid_nn,
+                logPlanZuid,
+                devnhoods_nn,
+                logdevnhoods
+                ) %>%
+  gather(Variable, Value, -price) 
+  
 correlation.cor <-
   correlation.long %>%
   group_by(Variable) %>%
@@ -394,8 +457,8 @@ ggplot(correlation.long, aes(Value, price)) +
   geom_text(data = correlation.cor, aes(label = paste("r =", round(correlation, 2))),
             x=-Inf, y=Inf, vjust = 1.5, hjust = -.1) +
   geom_smooth(method = "lm", se = FALSE, colour = "red") +
-  facet_wrap(~Variable, ncol = 4, scales = "free") +
-  labs(title = "Price as a Function of Variables") +
+  facet_wrap(~Variable, ncol = 3, scales = "free") +
+  labs(title = "Amenities") +
   plotTheme()
 
 #---Maps
@@ -440,11 +503,11 @@ apartmentsPC6 %>%
   
 
 ###############################
-# LINEAR PRICE PREDICTION MODEL (MIAMI)
+# LINEAR PRICE PREDICTION MODEL 
 ###############################
 df_reg <- subset(df, Type == "Short-Term")
-df_reg <- subset(df, price > 0)
-df_reg$logprice <- log(df_reg$price)
+#df_reg <- subset(df, price > 0)
+#df_reg$logprice <- log(df_reg$price)
 
 #Setting up test and training datasets
 inTrain <- createDataPartition( 
@@ -454,29 +517,44 @@ inTrain <- createDataPartition(
 df.training <- df_reg[inTrain,] 
 df.test <- df_reg[-inTrain,]  
 
+colnames(df)
+
 #Multivariate regression
-reg.vars <- c("logprice", 
+reg.vars <- c("price",
               "bedrooms",
               "lagPrice5",
-              #"lagPrice10",
+              "lagPrice10",
               "TopTen",
               "TopTwenty",
               "OverThreeBeds",
-              "OverThreeBeds",
-              "bars_nn",
-              "bikestands_nn",
-              "museums_nn",
+              "OverFiveBeds",
+              #"bars_nn",
+              "logbars",
               #"restaurants_nn",
-              "parks_nn",
-              "wallart_nn",
-              "AmsBinnen_nn",
-              "PlanZuid_nn",
+              "logrestaurants",
+              "bikestands_nn",
+              #"logbikestand",
+              #"museums_nn",
+              "logmuseum",
+              #"parks_nn",
+              "logparks",
+              "tram_nn",
+              #'logtram',
+              "universities_nn",
+              #"loguniversities",
+              "oldtrees_nn",
+              #"logoldtrees",
+              #"AmsBinnen_nn",
+              "logAmsBinnen",
               #"OudZuid_nn",
-              "devnhoods_nn",
-              #"universities_nn"
+              "logOudZuid",
+              "PlanZuid_nn",
+              #"logPlanZuid",
+              #"devnhoods_nn",
+              "logdevnhoods"
               )
 
-reg1 <- lm(logprice ~ ., data = st_drop_geometry(df.training) %>% 
+reg1 <- lm(price ~ ., data = st_drop_geometry(df.training) %>% 
              dplyr::select(all_of(reg.vars)))
 
 stargazer(
@@ -489,13 +567,13 @@ stargazer(
 #Cross validation tests
 reg1_predict <- predict(reg1, newdata = df.test)
 
-rmse.train <- caret::MAE(exp(predict(reg1)), df.training$price)
-rmse.test <- caret::MAE(exp(reg1_predict), df.test$price)
+rmse.train <- caret::MAE(predict(reg1), df.training$price)
+rmse.test <- caret::MAE(reg1_predict, df.test$price)
 
-preds.train <- data.frame(pred   = exp(predict(reg1)),
+preds.train <- data.frame(pred   = predict(reg1),
                           actual = df.training$price,
                           source = "training data")
-preds.test  <- data.frame(pred   = exp(reg1_predict),
+preds.test  <- data.frame(pred   = reg1_predict,
                           actual = df.test$price,
                           source = "testing data")
 
@@ -505,7 +583,7 @@ ggplot(preds, aes(x = pred, y = actual, color = source)) +
   geom_point() +
   geom_smooth(method = "lm", color = "green") +
   geom_abline(color = "orange") +
-  coord_equal() +
+  #coord_equal() +
   theme_bw() +
   facet_wrap(~source, ncol = 2) +
   labs(title = "Comparing predictions to actual values",
@@ -550,16 +628,483 @@ reg1.cv <-
         trControl = fitControl, 
         na.action = na.pass)
 
-reg1.cv 
+reg1.cv
 
 #Standard Deviation and Histogram of MAE
 reg1.cv.resample <- reg1.cv$resample
 
-sd(reg1.cv.resample$MAPE)
+sd(reg1.cv.resample$MAE)
 
-ggplot(reg1.cv.resample, aes(x=MAE)) + geom_histogram(color = "grey40", fill = "#27fdf5", bins = 50) + 
-  labs(title="Histogram of Mean Average Error Across 100 Folds",
-       subtitle = "Figure X.X") +
+ggplot(reg1.cv.resample, aes(x=MAE)) + geom_histogram(color = "grey40", fill = "#232761ff", bins = 50) + 
+  labs(title="Histogram of Mean Average Error Across 100 Folds") +
+  plotTheme()
+
+######################################
+# Compare predictions to actual prices
+######################################
+
+df$predict <- predict(reg1, newdata = df)
+df$monthlyprice <- df$price*30
+df$monthlypred <- df$predict*30
+df$absdiff <- abs(df$monthlyprice - df$monthlypred)
+df$pctdiff <- df$diff / df$monthlyprice
+
+longterm <- df %>% filter(Type == "Long-term")
+
+longterm %>%
+  ggplot() +
+  geom_sf(data = nhoods) +
+  geom_sf(data = longterm, aes(colour = pctdiff)) +
+  scale_color_viridis() +
+  mapTheme()
+
+df %>%
+  filter(bedrooms == 2 & Type == "Long-term") %>%
+  ggplot() +
+  geom_sf(data = nhoods) +
+  geom_sf(data = ., aes(colour = pctdiff)) +
+  scale_color_viridis() +
+  mapTheme()
+
+ggplot() +
+  geom_sf(data = nhoods) +
+  geom_sf(data = df, aes(colour = diff, alpha = .5)) +
+  scale_color_viridis() +
+
+df %>%
+  dplyr::select(pctdiff) %>%
+  aggregate(., nhoods.sf, mean) %>%
+  ggplot() +
+  geom_sf(aes(fill = pctdiff)) +
+  labs(title = "Average Percent Difference Between \nLong-Term & Short-Term Revenue") +
+  scale_fill_viridis() +
+  mapTheme()
+
+df %>%
+  dplyr::select(diff) %>%
+  aggregate(., nhoods.sf, mean) %>%
+  ggplot() +
+  geom_sf(aes(fill = diff)) +
+  labs(title = "Average Absolute Difference Between \nLong-Term & Short-Term Revenue") +
+  scale_fill_viridis() +
+  mapTheme()
+
+
+
+
+#-------------------------------------------------------------
+
+###############################
+# MODEL w/ LOG PRICE
+###############################
+dflog_reg <- subset(df, Type == "Short-Term")
+
+#Setting up test and training datasets
+inTrain <- createDataPartition( 
+  y = paste(dflog_reg$neighborhood), 
+  p = .70, list = FALSE)
+
+dflog.training <- dflog_reg[inTrain,] 
+dflog.test <- dflog_reg[-inTrain,]  
+
+#Multivariate regression
+reg.vars.log <- c("logprice",
+              "bedrooms",
+              "lagPrice5",
+              "lagPrice10",
+              "TopTen",
+              "TopTwenty",
+              "OverThreeBeds",
+              "OverFiveBeds",
+              #"bars_nn",
+              "logbars",
+              #"restaurants_nn",
+              "logrestaurants",
+              "bikestands_nn",
+              #"logbikestand",
+              #"museums_nn",
+              "logmuseum",
+              #"parks_nn",
+              "logparks",
+              "tram_nn",
+              #'logtram',
+              "universities_nn",
+              #"loguniversities",
+              "oldtrees_nn",
+              #"logoldtrees",
+              #"AmsBinnen_nn",
+              "logAmsBinnen",
+              #"OudZuid_nn",
+              "logOudZuid",
+              "PlanZuid_nn",
+              #"logPlanZuid",
+              #"devnhoods_nn",
+              "logdevnhoods"
+)
+
+reglog1 <- lm(logprice ~ ., data = st_drop_geometry(dflog.training) %>% 
+             dplyr::select(all_of(reg.vars.log)))
+
+stargazer(
+  reglog1,
+  type = "text",
+  title = "Linear Model Summary Table",
+  dep.var.caption = " ",
+  dep.var.labels = "Model Features")
+
+#Cross validation tests
+reglog_predict <- exp(predict(reglog1, newdata = dflog.test))
+
+rmse.train <- caret::MAE(exp(predict(reglog1)), dflog.training$logprice)
+rmse.test <- caret::MAE(reglog_predict, dflog.test$logprice)
+
+preds.train <- data.frame(pred   = exp(predict(reglog1)),
+                          actual = df.training$price,
+                          source = "training data")
+preds.test  <- data.frame(pred   = reglog_predict,
+                          actual = df.test$price,
+                          source = "testing data")
+
+preds <- rbind(preds.train, preds.test)
+
+#Evaluate errors
+dflog.test <-
+  dflog.test %>%
+  mutate(Regression = "Log Regression",
+         SalePrice.Predict = exp(predict(reglog1, dflog.test)),
+         SalePrice.Error = SalePrice.Predict - price,
+         SalePrice.AbsError = abs(SalePrice.Predict - price),
+         SalePrice.APE = (abs(SalePrice.Predict - price)) / SalePrice.Predict)
+
+ErrorTableLog <- 
+  dflog.test %>% 
+  dplyr::summarize(Regression = "Log Regression",
+                   MAE = mean(SalePrice.AbsError, na.rm = T), 
+                   MAPE = mean(SalePrice.AbsError, na.rm = T) / mean(price, na.rm = T)) 
+
+ErrorTableLog %>% 
+  st_drop_geometry %>%
+  group_by(Regression) %>%
+  arrange(desc(MAE)) %>% 
+  kable(caption = "MAE and MAPE for Test Set Data") %>% kable_styling()
+
+#Generalizable 
+fitControl <- trainControl(method = "cv", 
+                           number = 100,
+                           savePredictions = TRUE)
+
+set.seed(717)
+reg1.cv <- 
+  train(price ~ ., data = st_drop_geometry(df_reg) %>% 
+          dplyr::select(reg.vars), 
+        method = "lm", 
+        trControl = fitControl, 
+        na.action = na.pass)
+
+reg1.cv
+
+#Standard Deviation and Histogram of MAE
+reg1.cv.resample <- reg1.cv$resample
+
+sd(reg1.cv.resample$MAE)
+
+ggplot(reg1.cv.resample, aes(x=MAE)) + geom_histogram(color = "grey40", fill = "#232761ff", bins = 50) + 
+  labs(title="Histogram of Mean Average Error Across 100 Folds") +
   plotTheme()
 
 
+
+
+
+
+
+
+
+
+
+
+#################
+# 1 BEDROOM MODEL
+#################
+df_1Bed <- subset(df, Type == "Short-Term" & bedrooms == 1)
+df_2Bed <- subset(df, Type == "Short-Term" & bedrooms == 2)
+df_3Bed <- subset(df, Type == "Short-Term" & bedrooms == 3)
+#df_reg <- subset(df, price > 0)
+#df_reg$logprice <- log(df_reg$price)
+
+#Setting up test and training datasets
+inTrain <- createDataPartition( 
+  y = paste(df_1Bed$neighborhood), 
+  p = .70, list = FALSE)
+
+df1.training <- df_1Bed[inTrain,] 
+df1.test <- df_1Bed[-inTrain,]  
+
+colnames(df)
+
+#Multivariate regression
+reg.vars <- c("price",
+              #"bedrooms",
+              "lagPrice5",
+              "lagPrice10",
+              "TopTen",
+              "TopTwenty",
+              #"bars_nn",
+              "logbars",
+              #"restaurants_nn",
+              "logrestaurants",
+              "bikestands_nn",
+              #"logbikestand",
+              #"museums_nn",
+              "logmuseum",
+              #"parks_nn",
+              "logparks",
+              "tram_nn",
+              #'logtram',
+              "universities_nn",
+              #"loguniversities",
+              "oldtrees_nn",
+              #"logoldtrees",
+              #"AmsBinnen_nn",
+              "logAmsBinnen",
+              #"OudZuid_nn",
+              "logOudZuid",
+              "PlanZuid_nn",
+              #"logPlanZuid",
+              #"devnhoods_nn",
+              "logdevnhoods"
+)
+
+reg1Bed <- lm(price ~ ., data = st_drop_geometry(df1.training) %>% 
+             dplyr::select(all_of(reg.vars)))
+
+stargazer(
+  reg1Bed,
+  type = "text",
+  title = "Linear Model Summary Table",
+  dep.var.caption = " ",
+  dep.var.labels = "Model Features")
+
+#Cross validation tests
+reg1Bed_predict <- predict(reg1Bed, newdata = df1.test)
+
+rmse.train <- caret::MAE(predict(reg1Bed), df1.training$price)
+rmse.test <- caret::MAE(reg1Bed_predict, df1.test$price)
+
+preds.train <- data.frame(pred   = predict(reg1Bed),
+                          actual = df1.training$price,
+                          source = "training data")
+preds.test  <- data.frame(pred   = reg1Bed_predict,
+                          actual = df1.test$price,
+                          source = "testing data")
+
+preds <- rbind(preds.train, preds.test)
+
+df1.test <-
+  df1.test %>%
+  mutate(Regression = "1-Bed Regression",
+         SalePrice.Predict = predict(reg1Bed, df1.test),
+         SalePrice.Error = SalePrice.Predict - price,
+         SalePrice.AbsError = abs(SalePrice.Predict - price),
+         SalePrice.APE = (abs(SalePrice.Predict - price)) / SalePrice.Predict)
+
+ErrorTable1 <- 
+  df1.test %>% 
+  dplyr::summarize(Regression = "1-Bed Regression",
+                   MAE = mean(SalePrice.AbsError, na.rm = T), 
+                   MAPE = mean(SalePrice.AbsError, na.rm = T) / mean(price, na.rm = T)) 
+
+ErrorTable1 %>% 
+  st_drop_geometry %>%
+  group_by(Regression) %>%
+  arrange(desc(MAE)) %>% 
+  kable(caption = "MAE and MAPE for Test Set Data") %>% kable_styling()
+
+
+###2Bed
+#Setting up test and training datasets
+inTrain <- createDataPartition( 
+  y = paste(df_2Bed$neighborhood), 
+  p = .70, list = FALSE)
+
+df2.training <- df_2Bed[inTrain,] 
+df2.test <- df_2Bed[-inTrain,]  
+
+colnames(df)
+
+#Multivariate regression
+reg.vars <- c("price",
+              #"bedrooms",
+              "lagPrice5",
+              "lagPrice10",
+              "TopTen",
+              "TopTwenty",
+              #"bars_nn",
+              "logbars",
+              #"restaurants_nn",
+              "logrestaurants",
+              "bikestands_nn",
+              #"logbikestand",
+              #"museums_nn",
+              "logmuseum",
+              #"parks_nn",
+              "logparks",
+              "tram_nn",
+              #'logtram',
+              "universities_nn",
+              #"loguniversities",
+              "oldtrees_nn",
+              #"logoldtrees",
+              #"AmsBinnen_nn",
+              "logAmsBinnen",
+              #"OudZuid_nn",
+              "logOudZuid",
+              "PlanZuid_nn",
+              #"logPlanZuid",
+              #"devnhoods_nn",
+              "logdevnhoods"
+)
+
+reg2Bed <- lm(price ~ ., data = st_drop_geometry(df2.training) %>% 
+                dplyr::select(all_of(reg.vars)))
+
+stargazer(
+  reg2Bed,
+  type = "text",
+  title = "Linear Model Summary Table",
+  dep.var.caption = " ",
+  dep.var.labels = "Model Features")
+
+#Cross validation tests
+reg2Bed_predict <- predict(reg1Bed, newdata = df2.test)
+
+rmse.train <- caret::MAE(predict(reg2Bed), df2.training$price)
+rmse.test <- caret::MAE(reg2Bed_predict, df2.test$price)
+
+preds.train <- data.frame(pred   = predict(reg2Bed),
+                          actual = df2.training$price,
+                          source = "training data")
+preds.test  <- data.frame(pred   = reg2Bed_predict,
+                          actual = df2.test$price,
+                          source = "testing data")
+
+preds <- rbind(preds.train, preds.test)
+
+df2.test <-
+  df2.test %>%
+  mutate(Regression = "2-Bed Regression",
+         SalePrice.Predict = predict(reg2Bed, df2.test),
+         SalePrice.Error = SalePrice.Predict - price,
+         SalePrice.AbsError = abs(SalePrice.Predict - price),
+         SalePrice.APE = (abs(SalePrice.Predict - price)) / SalePrice.Predict)
+
+ErrorTable2 <- 
+  df2.test %>% 
+  dplyr::summarize(Regression = "2-Bed Regression",
+                   MAE = mean(SalePrice.AbsError, na.rm = T), 
+                   MAPE = mean(SalePrice.AbsError, na.rm = T) / mean(price, na.rm = T)) 
+
+ErrorTable2 %>% 
+  st_drop_geometry %>%
+  group_by(Regression) %>%
+  arrange(desc(MAE)) %>% 
+  kable(caption = "MAE and MAPE for Test Set Data") %>% kable_styling()
+
+###ed
+#Setting up test and training datasets
+inTrain <- createDataPartition( 
+  y = paste(df_3Bed$neighborhood), 
+  p = .70, list = FALSE)
+
+df3.training <- df_3Bed[inTrain,] 
+df3.test <- df_3Bed[-inTrain,]  
+
+colnames(df)
+
+#Multivariate regression
+reg.vars <- c("price",
+              #"bedrooms",
+              "lagPrice5",
+              "lagPrice10",
+              "TopTen",
+              "TopTwenty",
+              #"bars_nn",
+              "logbars",
+              #"restaurants_nn",
+              "logrestaurants",
+              "bikestands_nn",
+              #"logbikestand",
+              #"museums_nn",
+              "logmuseum",
+              #"parks_nn",
+              "logparks",
+              "tram_nn",
+              #'logtram',
+              "universities_nn",
+              #"loguniversities",
+              "oldtrees_nn",
+              #"logoldtrees",
+              #"AmsBinnen_nn",
+              "logAmsBinnen",
+              #"OudZuid_nn",
+              "logOudZuid",
+              "PlanZuid_nn",
+              #"logPlanZuid",
+              #"devnhoods_nn",
+              "logdevnhoods"
+)
+
+reg3Bed <- lm(price ~ ., data = st_drop_geometry(df.training) %>% 
+                dplyr::select(all_of(reg.vars)))
+
+stargazer(
+  reg3Bed,
+  type = "text",
+  title = "Linear Model Summary Table",
+  dep.var.caption = " ",
+  dep.var.labels = "Model Features")
+
+#Cross validation tests
+reg3Bed_predict <- predict(reg3Bed, newdata = df.test)
+
+rmse.train <- caret::MAE(predict(reg3Bed), df3.training$price)
+rmse.test <- caret::MAE(reg3Bed_predict, df3.test$price)
+
+preds.train <- data.frame(pred   = predict(reg3Bed),
+                          actual = df3.training$price,
+                          source = "training data")
+preds.test  <- data.frame(pred   = reg3Bed_predict,
+                          actual = df3.test$price,
+                          source = "testing data")
+
+preds <- rbind(preds.train, preds.test)
+
+df3.test <-
+  df3.test %>%
+  mutate(Regression = "3-Bed Regression",
+         SalePrice.Predict = predict(reg3Bed, df3.test),
+         SalePrice.Error = SalePrice.Predict - price,
+         SalePrice.AbsError = abs(SalePrice.Predict - price),
+         SalePrice.APE = (abs(SalePrice.Predict - price)) / SalePrice.Predict)
+
+ErrorTable3 <- 
+  df3.test %>% 
+  dplyr::summarize(Regression = "3-Bed Regression",
+                   MAE = mean(SalePrice.AbsError, na.rm = T), 
+                   MAPE = mean(SalePrice.AbsError, na.rm = T) / mean(price, na.rm = T)) 
+
+ErrorTable3 %>% 
+  st_drop_geometry %>%
+  group_by(Regression) %>%
+  arrange(desc(MAE)) %>% 
+  kable(caption = "MAE and MAPE for Test Set Data") %>% kable_styling()
+
+rbind(ErrorTable, ErrorTableLog, ErrorTable1, ErrorTable2, ErrorTable3) %>%
+  st_drop_geometry() %>%
+  kable(caption = "MAE and MAPE for Test Set Data") %>%
+  kable_styling()
+
+stargazer(reg1, reglog1, reg1Bed, reg2Bed, reg3Bed, 
+          type = "text")
+
+?stargazer
