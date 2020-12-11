@@ -81,6 +81,8 @@ plotTheme <- function(base_size = 12) {
 
 palette5 <- c('#f765b8','#f98dc9','#d7fffe','#a8f6f8', '#27fdf5')
 
+pal <- viridisLite::viridis(5)
+
 qBr <- function(df, variable, rnd) {
   if (missing(rnd)) {
     as.character(quantile(round(df[[variable]],0),
@@ -129,13 +131,19 @@ apartmentsPC6 <- apartmentsPC6 %>%
   dplyr::select('house_price', 'bedrooms', 'surface', 'geometry') %>%
   st_as_sf() %>%
   st_centroid() %>%
-  mutate(price = house_price*1.21) %>% #convert variables to USD, feet
+  mutate(price = (house_price*1.21)/30) %>% #convert variables to USD, divide by 30
   dplyr::select('price', 'bedrooms', 'geometry') %>%
   mutate(Type = "Long-Term") %>% 
   st_as_sf() %>%
   na.omit()
 
-ggplot() + geom_sf(data = airbnb.sf)
+apartmentsPC6 %>% 
+  ggplot() +
+  geom_sf(data = nhoods, fill = "grey60") +
+  geom_sf(data = apartmentsPC6, aes(color = q5(price))) +
+  labs(title = "Long-Term Apartment Price by Quintile") +
+  scale_color_manual(values = pal) +
+  mapTheme()
 
 #square_feet = surface* 10.7639
 #Combining the short-term and long-term rental datasets
@@ -146,9 +154,13 @@ df <- st_join(df, nhoods.sf) %>%
   na.omit() %>%
   st_as_sf()
 
+#Remving outliers
 df <- subset(df, bedrooms < 4)
 df <- subset(df, price > 0)
 df <- subset(df, price < 1000)
+
+df %>%
+  filter(Type=="Long-Term")
 
 ########################
 # NEIGHBORHOOD VARIABLES
@@ -193,6 +205,9 @@ trammetro <- st_read("https://maps.amsterdam.nl/open_geodata/geojson.php?KAARTLA
   st_as_sf()
 trammetro.sf <- st_join(trammetro, nhoods.sf, join = st_intersects, left = FALSE) 
 
+tram.sf <- trammetro.sf %>% filter(Modaliteit == "Tram")
+metro.sf <- trammetro.sf %>% filter(Modaliteit == "Metro")
+
 wallart <- st_read("https://maps.amsterdam.nl/open_geodata/geojson.php?KAARTLAAG=WANDKUNST&THEMA=wandkunst", quiet = TRUE) %>%
   st_transform('EPSG:28992')
 wallart.sf <- st_join(wallart, nhoods.sf, join = st_intersects, left = FALSE)
@@ -210,6 +225,43 @@ bars <- opq(bbox = c(xmin, ymin, xmax, ymax)) %>%
   osmdata_sf()
 bars <- bars$osm_points %>% .[amsBoundary,]
 bars.sf <- bars %>%
+  dplyr::select(geometry) %>%
+  na.omit() %>%
+  st_transform('EPSG:28992') %>%
+  distinct() %>%
+  st_centroid()
+
+bikerental <- opq(bbox = c(xmin, ymin, xmax, ymax)) %>%
+  add_osm_feature(key = 'amenity', value = c("bicycle_rental")) %>%
+  osmdata_sf()
+bikerental <- bikerental$osm_points %>% .[amsBoundary,]
+bikerental.sf <- bikerental %>%
+  dplyr::select(geometry) %>%
+  na.omit() %>%
+  st_transform('EPSG:28992') %>%
+  distinct() %>%
+  st_centroid()
+
+ggplot() + geom_sf(data = nhoods.sf) + geom_sf(data = bikerental.sf)
+
+brothels <- opq(bbox = c(xmin, ymin, xmax, ymax)) %>%
+  add_osm_feature(key = 'amenity', value = c("brothel")) %>%
+  osmdata_sf()
+brothels <- brothels$osm_points %>% .[amsBoundary,]
+brothels.sf <- brothels %>%
+  dplyr::select(geometry) %>%
+  na.omit() %>%
+  st_transform('EPSG:28992') %>%
+  distinct() %>%
+  st_centroid()
+
+ggplot() + geom_sf(data = nhoods.sf) + geom_sf(data = brothels.sf)
+
+exchange <- opq(bbox = c(xmin, ymin, xmax, ymax)) %>%
+  add_osm_feature(key = 'amenity', value = c("bureau_de_change")) %>%
+  osmdata_sf()
+exchange <- exchange$osm_points %>% .[amsBoundary,]
+exchange.sf <- exchange %>%
   dplyr::select(geometry) %>%
   na.omit() %>%
   st_transform('EPSG:28992') %>%
@@ -260,8 +312,6 @@ universities.sf <- universities %>%
   distinct() %>%
   st_centroid()
 
-ggplot() + geom_sf(data = amsBoundary) + geom_sf(data = universities.sf)
-
 #####################
 # FEATURE ENGINEERING
 #####################
@@ -287,14 +337,14 @@ top20hoods <-
   pull(neighborhood)
 top20hoods <- top20hoods[1:20]
 
+Jordaan <- nhoods.sf %>%
+  filter(Buurtcombinatie == "Jordaan") %>%
+  st_centroid()
+
+ggplot() + geom_sf(data = nhoods.sf) + geom_sf(data = Jordaan)
+
 airbnb$accommodates_no <- as.numeric(as.character(airbnb$accommodates))
 
-accommodates <-
-  airbnb %>% 
-  filter(bedrooms >0) %>%
-  dplyr::select(bedrooms, accommodates) %>%
-  group_by(bedrooms) %>%
-  summarise(mean_accomodates = mean(accommodates))
 
 df <- 
   df %>%
@@ -303,18 +353,54 @@ df <-
          OverThreeBeds = ifelse(bedrooms >=3, 1, 0),
          OverFiveBeds = ifelse(bedrooms >=5, 1, 0))
 
+#Reverse engineer Airbnb
+airbnb %>% 
+  filter(bedrooms >0 & bedrooms <4) %>%
+  dplyr::select(bedrooms, accommodates, beds, bathrooms) %>%
+  group_by(bedrooms) %>%
+  summarise(mean_accomodates = mean(accommodates),
+            median_accomodates = median(accommodates),
+            mean_beds = mean(beds, na.rm = TRUE),
+            median_beds = median(beds, na.rm = TRUE),
+            mean_baths = mean(bathrooms, na.rm = TRUE),
+            median_baths = median(bathrooms, na.rm = TRUE))
+
+df <-
+  df %>% 
+  mutate(accommodates = ifelse(bedrooms == 1, 2.24,ifelse(bedrooms == 2, 3.76, 4.45)),
+         beds = ifelse(bedrooms == 1, 1.23, ifelse(bedrooms == 2, 2.39, 3.72)),
+         bathrooms = ifelse(bedrooms == 1, 1.07, ifelse(bedrooms == 2, 1.17, 1.38))) 
+
+df$priceperBR <- df$price / df$bedrooms
+
 #Nearest neighbor variable
+ggplot() + geom_sf(data = nhoods.sf) + geom_sf(data = trammetro.sf, aes(colour = Modaliteit))
+
+unique(trammetro.sf$Modaliteit)
+
 df <- 
   df %>%
   mutate(bars_nn = nn_function(st_coordinates
                                 (st_centroid(df)),
                                 st_coordinates(st_centroid(bars.sf)), 1),
+         bikerental_nn = nn_function(st_coordinates
+                               (st_centroid(df)),
+                               st_coordinates(st_centroid(bikerental.sf)), 3),
          bikestands_nn = nn_function(st_coordinates
                                       (st_centroid(df)), 
-                                      st_coordinates(st_centroid(trammetro.sf)), 1),
+                                      st_coordinates(st_centroid(bikestands.sf)), 3),
+         brothels_nn = nn_function(st_coordinates
+                                   (st_centroid(df)), 
+                                   st_coordinates(st_centroid(brothels.sf)), 5),
+         exchange_nn = nn_function(st_coordinates
+                                     (st_centroid(df)), 
+                                     st_coordinates(st_centroid(trammetro.sf)), 3),
+         jordaan_nn = nn_function(st_coordinates
+                                  (st_centroid(df)), 
+                                  st_coordinates(st_centroid(Jordaan)), 1),
          museums_nn = nn_function(st_coordinates
                                    (st_centroid(df)), 
-                                   st_coordinates(st_centroid(museums.sf)), 1),
+                                   st_coordinates(st_centroid(museums.sf)), 5),
          restaurants_nn = nn_function(st_coordinates
                                        (st_centroid(df)), 
                                        st_coordinates(st_centroid(restaurants.sf)), 1),
@@ -322,17 +408,20 @@ df <-
                                  (st_centroid(df)), 
                                  st_coordinates(st_centroid(parks.sf)), 1),
          tram_nn = nn_function(st_coordinates
-                                (st_centroid(df)), 
-                                st_coordinates(st_centroid(trammetro.sf)), 1),
-         universities_nn = nn_function(st_coordinates
-                                     (st_centroid(df)), 
-                                     st_coordinates(st_centroid(universities.sf)), 1),
-         wallart_nn = nn_function(st_coordinates
-                                   (st_centroid(df)), 
-                                   st_coordinates(st_centroid(wallart.sf)), 1),
+                                (st_centroid(df)),
+                                st_coordinates(st_centroid(tram.sf)), 3),
+         metro_nn = nn_function(st_coordinates
+                               (st_centroid(df)),
+                               st_coordinates(st_centroid(metro.sf)), 3),
+         # universities_nn = nn_function(st_coordinates
+         #                             (st_centroid(df)), 
+         #                             st_coordinates(st_centroid(universities.sf)), 1),
+         # wallart_nn = nn_function(st_coordinates
+         #                           (st_centroid(df)), 
+         #                           st_coordinates(st_centroid(wallart.sf)), 1),
          oldtrees_nn = nn_function(st_coordinates
                                     (st_centroid(df)), 
-                                    st_coordinates(st_centroid(oldtrees.sf)), 1),
+                                    st_coordinates(st_centroid(oldtrees.sf)), 5),
          AmsBinnen_nn = nn_function(st_coordinates
                                    (st_centroid(df)), 
                                    st_coordinates(st_centroid(Ams_Binnen.sf)), 1),
@@ -347,22 +436,22 @@ df <-
                                     st_coordinates(st_centroid(devnhoods.sf)), 1))
 
 #Spatial lag
-coords <- st_coordinates(df) 
-neighborList5 <- knn2nb(knearneigh(coords, 5))
-spatialWeights5 <- nb2listw(neighborList5, style="W")
-df$lagPrice5 <- lag.listw(spatialWeights5, df$price)
+# coords <- st_coordinates(df) 
+# neighborList5 <- knn2nb(knearneigh(coords, 5))
+# spatialWeights5 <- nb2listw(neighborList5, style="W")
+# df$lagPrice5 <- lag.listw(spatialWeights5, df$price)
 
 coords <- st_coordinates(df) 
 neighborList10 <- knn2nb(knearneigh(coords, 10))
 spatialWeights10 <- nb2listw(neighborList10, style="W")
 df$lagPrice10 <- lag.listw(spatialWeights10, df$price)
 
-#Variable Manipulations
+#Variable transormations
 df$logprice <- log(df$price)
-df$museums2 <- df$museums_nn^2
-df$museums3 <- df$museums_nn^3
+# df$museums2 <- df$museums_nn^2
+# df$museums3 <- df$museums_nn^3
 df$logmuseum <- log(df$museums_nn)
-df$parks2 <- df$parks_nn^2
+# df$parks2 <- df$parks_nn^2
 df$logparks <- log(df$parks_nn)
 df$logrestaurants <- log(df$restaurants_nn)
 df$logbars <- log(df$bars_nn)
@@ -375,6 +464,12 @@ df$logAmsBinnen <- log(df$AmsBinnen_nn)
 df$logOudZuid <- log(df$OudZuid_nn)
 df$logPlanZuid <- log(df$PlanZuid_nn)
 df$logdevnhoods <- log(df$devnhoods_nn)
+df$logtram <- log(df$tram_nn)
+df$logmetro <- log(df$metro_nn)
+df$logexchange <- log(df$exchange_nn)
+df$logbrothels <- log(df$brothels_nn)
+df$logbikerentals <- log(df$bikerental_nn)
+df$logjordaan <- log(df$jordaan_nn)
 
 #######################
 # EXPLORATORY ANALYSIS
@@ -383,6 +478,8 @@ numericVars <-
   select_if(df, is.numeric) %>%
   st_drop_geometry() %>%
   dplyr::select(price,
+                bedrooms,
+                accommodates,
                 bars_nn,
                 bikestands_nn,
                 museums_nn,
@@ -409,41 +506,52 @@ ggcorrplot(
   labs(title = "Correlation across numeric variables",
        subtitle = "Figure X.X")
 
-boxplot(df$bedrooms)
-
 #---Scatterplots
 correlation.long <-
   st_drop_geometry(df) %>%
   filter(bedrooms < 6) %>%
   dplyr::select(price,
-                bedrooms,
-                lagPrice5,
-                lagPrice10,
-                bars_nn,
-                logbars,
-                restaurants_nn,
-                logrestaurants,
-                bikestands_nn,
-                logbikestand,
-                museums_nn,
-                logmuseum,
-                parks_nn,
-                parks2,
-                logparks,
-                tram_nn,
-                logtram,
-                universities_nn,
-                loguniversities,
-                oldtrees_nn,
-                logoldtrees,
-                AmsBinnen_nn,
-                logAmsBinnen,
-                OudZuid_nn,
-                logOudZuid,
-                PlanZuid_nn,
-                logPlanZuid,
-                devnhoods_nn,
-                logdevnhoods
+                jordaan_nn,
+                logjordaan
+                # brothels_nn, 
+                # logbrothels
+                # exchange_nn,
+                # logexchange
+                # tram_nn,
+                # logtram,
+                # metro_nn,
+                # logmetro
+                # bedrooms,
+                # accommodates,
+                # beds,
+                # bathrooms
+                # lagPrice5,
+                # lagPrice10,
+                # bars_nn,
+                # logbars,
+                # restaurants_nn,
+                # logrestaurants,
+                # bikestands_nn,
+                # logbikestand,
+                # museums_nn,
+                # logmuseum,
+                # parks_nn,
+                # parks2,
+                # logparks,
+                # tram_nn,
+                # logtram,
+                # universities_nn,
+                # loguniversities,
+                # oldtrees_nn,
+                # logoldtrees,
+                # AmsBinnen_nn,
+                # logAmsBinnen,
+                # OudZuid_nn,
+                # logOudZuid,
+                # PlanZuid_nn,
+                # logPlanZuid,
+                # devnhoods_nn,
+                # logdevnhoods
                 ) %>%
   gather(Variable, Value, -price) 
   
@@ -517,41 +625,51 @@ inTrain <- createDataPartition(
 df.training <- df_reg[inTrain,] 
 df.test <- df_reg[-inTrain,]  
 
-colnames(df)
-
 #Multivariate regression
 reg.vars <- c("price",
+              "neighborhood",
               "bedrooms",
+              "accommodates",
+              #"beds",
+              #"bathrooms",
               "lagPrice5",
               "lagPrice10",
-              "TopTen",
-              "TopTwenty",
-              "OverThreeBeds",
-              "OverFiveBeds",
+              # "TopTen",
+              # "TopTwenty",
+              # "jordaan_nn",
+              # "OverThreeBeds",
+              # "OverFiveBeds",
               #"bars_nn",
-              "logbars",
+              #"logbars",
               #"restaurants_nn",
-              "logrestaurants",
+              #"logrestaurants",
               "bikestands_nn",
+              "logbikerentals",
+              #"bikerental_nn",
+              #"logbrothels",
+              "brothels_nn",
+              #"logmetro",
+              #"metro_nn",
+              #"logexchange",
               #"logbikestand",
-              #"museums_nn",
-              "logmuseum",
+              "museums_nn",
+              #"logmuseum",
               #"parks_nn",
-              "logparks",
-              "tram_nn",
+              #"logparks",
+              #"tram_nn",
               #'logtram',
-              "universities_nn",
+              #"universities_nn",
               #"loguniversities",
-              "oldtrees_nn",
-              #"logoldtrees",
+              #"oldtrees_nn",
+              "logoldtrees",
               #"AmsBinnen_nn",
-              "logAmsBinnen",
+              "logAmsBinnen"
               #"OudZuid_nn",
-              "logOudZuid",
-              "PlanZuid_nn",
+              #"logOudZuid"
+              #"PlanZuid_nn",
               #"logPlanZuid",
               #"devnhoods_nn",
-              "logdevnhoods"
+              #"logdevnhoods"
               )
 
 reg1 <- lm(price ~ ., data = st_drop_geometry(df.training) %>% 
@@ -647,31 +765,25 @@ df$predict <- predict(reg1, newdata = df)
 df$monthlyprice <- df$price*30
 df$monthlypred <- df$predict*30
 df$absdiff <- abs(df$monthlyprice - df$monthlypred)
-df$pctdiff <- df$diff / df$monthlyprice
+df$pctdiff <- df$absdiff / df$monthlyprice
 
-longterm <- df %>% filter(Type == "Long-term")
+longterm <- df %>% filter(Type == "Long-Term")
 
-longterm %>%
-  ggplot() +
+ggplot() +
   geom_sf(data = nhoods) +
-  geom_sf(data = longterm, aes(colour = pctdiff)) +
-  scale_color_viridis() +
-  mapTheme()
-
-df %>%
-  filter(bedrooms == 2 & Type == "Long-term") %>%
-  ggplot() +
-  geom_sf(data = nhoods) +
-  geom_sf(data = ., aes(colour = pctdiff)) +
-  scale_color_viridis() +
+  geom_sf(data = longterm, aes(colour = q5(pctdiff))) +
+  scale_color_manual(values = pal) +
+  labs(title = "Percent Difference in Price Between \nLong-Term & Short-Term Revenue") + 
   mapTheme()
 
 ggplot() +
   geom_sf(data = nhoods) +
-  geom_sf(data = df, aes(colour = diff, alpha = .5)) +
-  scale_color_viridis() +
+  geom_sf(data = longterm, aes(colour = q5(absdiff))) +
+  scale_color_manual(values = pal) +
+  labs(title = "Difference in Price Between \nLong-Term & Short-Term Revenue") + 
+  mapTheme()
 
-df %>%
+longterm %>%
   dplyr::select(pctdiff) %>%
   aggregate(., nhoods.sf, mean) %>%
   ggplot() +
@@ -680,11 +792,11 @@ df %>%
   scale_fill_viridis() +
   mapTheme()
 
-df %>%
-  dplyr::select(diff) %>%
+longterm %>%
+  dplyr::select(absdiff) %>%
   aggregate(., nhoods.sf, mean) %>%
   ggplot() +
-  geom_sf(aes(fill = diff)) +
+  geom_sf(aes(fill = absdiff)) +
   labs(title = "Average Absolute Difference Between \nLong-Term & Short-Term Revenue") +
   scale_fill_viridis() +
   mapTheme()
@@ -709,37 +821,49 @@ dflog.test <- dflog_reg[-inTrain,]
 
 #Multivariate regression
 reg.vars.log <- c("logprice",
+              "neighborhood",
               "bedrooms",
+              "accommodates",
+              #"beds",
+              #"bathrooms",
               "lagPrice5",
               "lagPrice10",
-              "TopTen",
-              "TopTwenty",
-              "OverThreeBeds",
-              "OverFiveBeds",
+              # "TopTen",
+              # "TopTwenty",
+              # "jordaan_nn",
+              # "OverThreeBeds",
+              # "OverFiveBeds",
               #"bars_nn",
-              "logbars",
+              #"logbars",
               #"restaurants_nn",
-              "logrestaurants",
+              #"logrestaurants",
               "bikestands_nn",
+              "logbikerentals",
+              #"bikerental_nn",
+              #"logbrothels",
+              "brothels_nn",
+              #"logmetro",
+              #"metro_nn",
+              #"logexchange",
               #"logbikestand",
-              #"museums_nn",
-              "logmuseum",
+              "museums_nn",
+              #"logmuseum",
               #"parks_nn",
-              "logparks",
-              "tram_nn",
+              #"logparks",
+              #"tram_nn",
               #'logtram',
-              "universities_nn",
+              #"universities_nn",
               #"loguniversities",
-              "oldtrees_nn",
-              #"logoldtrees",
+              #"oldtrees_nn",
+              "logoldtrees",
               #"AmsBinnen_nn",
-              "logAmsBinnen",
+              "logAmsBinnen"
               #"OudZuid_nn",
-              "logOudZuid",
-              "PlanZuid_nn",
+              #"logOudZuid"
+              #"PlanZuid_nn",
               #"logPlanZuid",
               #"devnhoods_nn",
-              "logdevnhoods"
+              #"logdevnhoods"
 )
 
 reglog1 <- lm(logprice ~ ., data = st_drop_geometry(dflog.training) %>% 
@@ -812,6 +936,10 @@ ggplot(reg1.cv.resample, aes(x=MAE)) + geom_histogram(color = "grey40", fill = "
   labs(title="Histogram of Mean Average Error Across 100 Folds") +
   plotTheme()
 
+rbind(ErrorTable, ErrorTableLog) %>%
+  st_drop_geometry() %>%
+  kable(caption = "MAE and MAPE for Test Set Data") %>%
+  kable_styling()
 
 
 
