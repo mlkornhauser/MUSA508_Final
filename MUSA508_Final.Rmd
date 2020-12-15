@@ -1,7 +1,7 @@
 ---
 title: "Predicting Short-Term Rental Prices in Amsterdam Using Airbnb Data"
 author: "Maddy Kornhauser & Ejiro Ojeni"
-date: "12/11/2020"
+date: "12/15/2020"
 output: 
   html_document: 
         code_folding: hide
@@ -12,7 +12,6 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-options(width = 60)
 local({
   hook_output <- knitr::knit_hooks$get('output')
   knitr::knit_hooks$set(output = function(x, options) {
@@ -114,14 +113,17 @@ q5 <- function(variable) {as.factor(ntile(variable, 5))}
 
 ## 1. Introduction
 
-With its unique attractions, beautiful architecture, and scenic views, it’s no wonder why Amsterdam remains a top tourist attraction for travellers around the globe. In the modern era, where flights are less expensive, tourism has surged in the city, along with the demand for short-term rentals. Rising home prices, few issued building permits and low density all factor into a lack of affordable housing in Amsterdam. However, people are increasingly blaming an relative newcomer to Amsterdam - Airbnb. Although Airbnb only arrived in the city in 2014, it has already made its mark currently accounting for 12% of the City’s overnight bookings. 
+With its unique attractions, beautiful architecture, and rich culture, it’s no wonder that Amsterdam remains a top tourist attraction for travelers around the globe. At the same time, the city is facing an affordable housing crisis, due myriad factors including rising home prices, few issued building permits and low density. But with tourism surging in the city, along with a demand for short-term rentals, people are increasingly blaming a relative newcomer to the city for a lack of affordable housing - Airbnb. Although Airbnb only arrived in the city in 2014, it has already made its mark currently accounting for 12% of the city’s overnight bookings.[^1] With many owners realizing they can generate more revenue by renting short-term to tourists instead of long-term arrangements with city residents, they convert their units to Airbnbs. This places additional pressure on the tight housing market.
 
-To help Amsterdam’s public housing officials proactively prevent a rapid conversion of long-term rental units to short-term rentals for tourists, The Concerned Citizens of Amsterdam’s data analytics team has developed Fairbnb. Fairbnb is a website that identifies which units are at risk of conversion by calculating the potential revenue difference between what owners are currently making leasing long-term units and what they could be making if their unit converted to a short-term rental listed on Airbnb. The units that have the greatest revenue difference are identified as the properties that have the highest risk of being converted. If replicated, this analysis could help policy officials in other cities properly manage Airbnb's by knowing where to proactively build affordable housing or where and how to target Airbnb regulatiosn, such as limiting permits in certain high-risk areas, and rental time restrictions. With this additional infomration and predictive power, Amsterdam can strike an optimal balance between protecting housing units and encouraging tourism, which is an important economic sector in the city.
+To help Amsterdam’s housing officials proactively prevent a rapid conversion of long-term units to short-term rentals for tourists, The Concerned Citizens of Amsterdam’s data analytics team has developed FAIRbnb. FAIRbnb is a website that identifies which units are at risk of conversion by calculating the potential revenue difference between what owners are currently making leasing long-term units and what they could be making if as a short-term rental listed on Airbnb. The units that have the greatest revenue difference are identified as the properties that have the highest risk of being converted. If replicated, this analysis could help policy officials in other cities properly manage Airbnbs by knowing where to proactively place restrictions on short-term rentals, such as instituting or limiting permits and rental time restrictions on specific units in high-risk areas. This could help manage specific areas feeling affordable housing pressure, but allow other areas of the city to use Airbnb more liberally and continue to feed into the burgeoning tourism industry. FAIRbnb could even help officials site new affordable housing developments. By using the predictive power of FAIRbnb, Amsterdam can strike an optimal balance between protecting housing units and continuing to reap the economic benefits of tourism.
+
+This write-up explains FAIRbnb's underlying predictive algorithm. After some exploratory analysis of our dataset and a discussion of our feature engineering, we review FAIRbnb's OLS model and resulting the error terms. Finally, we review the model's findings and discuss future improvements for the model. 
+
+A final wireframe for FAIRbnb can be found at the following link: https://youtu.be/KqjPqmSBksg
 
 ## 2. Data Wrangling & Exploratory Analysis
 
-The primary datasets that we used to conduct this analysis were a 2018 dataset of Airbnb listings [^1] in Amsterdam an a 2020 datset of long-term apartment listings from the Dutch rental site, Pararius [^2]. Since the long-term apartment listings were not readily available we scraped the listing data from their search page using instructions found on a Toward Data Science blog post [^3] and the worked with a University of Pennsylvania librarian to geocode the addresses using the ESRI World Geocoder. 
-
+The primary datasets that we used to conduct this analysis were a 2018 dataset of Airbnb listings in Amsterdam [^2] an a 2020 dataset of long-term apartment listings in Amsterdam from the Dutch rental site, Pararius [^3]. Since the long-term apartment listings were not readily available we scraped the data from the website's search page using instructions found on a Toward Data Science blog post [^4], and then worked with a University of Pennsylvania librarian to geocode the addresses using the ESRI World Geocoder. 
 ```{r data pull 1, echo=TRUE, message=FALSE, warning=FALSE}
 nhoods <- st_read("https://maps.amsterdam.nl/open_geodata/geojson.php?KAARTLAAG=GEBIED_BUURTCOMBINATIES_EXWATER&THEMA=gebiedsindeling", quiet = TRUE)
 #calculating and converting from sq meters to sqmiles
@@ -156,10 +158,9 @@ apartments.sf <- subset(apartments.sf, bedrooms <4)
 
 ```
 
-Figures X.X and X.X provide an overview of 2018 Airbnb counts by neighborhood. Both maps represent the count of Airbnbs by neighborhood with the map on the right normalized by nieghborhood area. Both representations show that there is a concentration of units in the center of Amsterdam in popular tourist neighborhoods such as Jordaan and De Pijp within the city's canal ring. The popularity of these neighborhoods is unsurprising as they areas are centrally located near main attractions.
-
-```{r}
-airbnb_count_normalized <- airbnb.sf %>%
+Figures 2.1.1 and 2.1.2 provide an overview of 2018 Airbnb counts by neighborhood. Both maps represent the count of Airbnbs by neighborhood with the map on the right normalized by neighborhood area. Both representations show that there is a concentration of units in the center of Amsterdam in popular tourist neighborhoods such as the Jordaan and De Pijp close to the city's central canal ring. The popularity of these neighborhoods is unsurprising as these areas are located near main visitor attractions.
+```{r warning=FALSE}
+airbnb.sf %>%
   mutate(count = 1) %>%
   dplyr::select(count) %>%
   aggregate(., nhoods.sf, sum) %>%
@@ -168,28 +169,24 @@ airbnb_count_normalized <- airbnb.sf %>%
   ggplot() +
   geom_sf(aes(fill=norm)) + 
   scale_fill_viridis() +
-  labs(title = "Airbnb's per Square Mile by Neighborhood") +
+  labs(title = "2018 Airbnbs per Square Mile by Neighborhood",
+       subtitle = "Figure 2.1.2") +
   mapTheme()
 
-airbnb_count <- airbnb.sf %>%
+airbnb.sf %>%
   mutate(count = 1) %>%
   dplyr::select(count) %>%
   aggregate(., nhoods.sf, sum) %>%
   ggplot() +
   geom_sf(aes(fill=count)) + 
   scale_fill_viridis() +
-  labs(title = "Airbnb's by Neighborhood") +
+  labs(title =  "2018 Airbnbs by Neighborhood",
+       subtitle = "Figure 2.1.1") +
   mapTheme()
-
-grid.arrange(airbnb_count, airbnb_count_normalized, 
-             ncol = 2, 
-             top = textGrob("2018 Airbnb's by Neighborhood", 
-                            gp=gpar(fontsize=20)))
 
 ```
 
-Despite the large supply of Airbnb's in central Amsterdam, this does not translate into lower price. While price trends do not exactly follow the spatial patterns we see in the above Figures X.X, we observe that more expensive properties tend to be located near the city center. This suggests that even with the concentration, there is still high demand for Airbnb units in the central district and hosts are able to charge higher rates.
-
+Despite the large supply of Airbnbs in central Amsterdam, this does not translate into lower prices. While price trends do not exactly follow the spatial patterns we see in the above Figures 2.1.1 and 2.1.2, we observe that more expensive units tend to be near the city core. This suggests that even with the concentration, there is still high demand for Airbnbs in the central district and hosts are able to charge higher rates.
 ```{r message=FALSE, warning=FALSE}
 airbnb.sf %>%
   dplyr::select(price) %>%
@@ -199,71 +196,39 @@ airbnb.sf %>%
   geom_sf(aes(fill=price)) + 
   scale_fill_viridis() +
     labs(title = "Average Nightly Airbnb Price by Neighborhood",
-       subtitle = "Figure X.X") +
+       subtitle = "Figure 2.2") +
   mapTheme()
 
 ```
 
-**Do we want to include the district map?**
-
-```{r}
-districts <- st_read("https://maps.amsterdam.nl/open_geodata/geojson.php?KAARTLAAG=GEBIED_BUURTCOMBINATIES_EXWATER&THEMA=gebiedsindeling")
-
-districts <- districts %>%
-  group_by(Stadsdeel_code) %>%
-  summarise() 
-
-districts.sf <- districts %>%
-  st_as_sf() %>%
-  st_transform('EPSG:28992')
-
-
-ggplot() + geom_sf(data = districts.sf, aes(fill = Stadsdeel_code))
-
-airbnb.sf %>%
-  mutate(count = 1) %>%
-  dplyr::select(count) %>%
-  aggregate(., districts.sf, sum) %>%
-  ggplot() +
-  geom_sf(aes(fill=count)) + 
-  scale_fill_viridis() +
-  labs(title = "Airbnbs by District",
-       subtitle = "Figure X.X") +
-  mapTheme()
-```
-
-Turning to the long-term apartment dataset, Figures X.X  and X.X maps the location and price of the apartments for which we will ultimately predict short-term revenue.  The map on the left shows trends in absolute price while the map on the right breaks down price by quitile. Unlike the price trends for the short-term Airbnb rentals, the apartment prices appear to be far more normalized with the apartments in the highest quintile dispersed throughout the city instead of being concentrated in central Amsterdam.
-
-```{r message=FALSE, warning=FALSE}
-apts_price <- ggplot() +
+Turning to the long-term apartment dataset, Figures 2.3.1 and 2.3.1 map the location and price of the apartments for which we will ultimately predict short-term revenue. The map on the left shows trends in absolute price while the map on the right breaks down price by quintile. Unlike the price trends for the short-term Airbnb rentals, the apartment prices appear to be more normalized across the city with apartments in the highest quintile dispersed throughout the city instead of being solely concentrated in central Amsterdam. It is important to remember that the apartment dataset is far smaller than the Airbnb dataset, and, due to the method we collected the data, the sample may not be fully representative of available apartments in Amsterdam.
+```{r apartments, message=FALSE, warning=FALSE}
+ggplot() +
   geom_sf(data = nhoods, fill = "grey60") +
   geom_sf(data = apartments.sf, aes(colour = price), size = .7) +
   scale_color_viridis() +
-  labs(title = "Long-Term Rentals to Predict Short-Term Revenue") + 
+  labs(title = "Price of Long-Term Rentals",
+       subtitle = "Figure 2.3.1") + 
   mapTheme()
 
-apts_qprice <- ggplot() +
+ggplot() +
   geom_sf(data = nhoods, fill = "grey60") +
   geom_sf(data = apartments.sf, aes(colour = q5(price)), size = .7) +
   scale_color_manual(values = pal) +
-  labs(title = "Long-Term Rentals to Predict Short-Term Revenue") + 
+  labs(title = "Quintile Price of Long-Term Rentals",
+       subtitle = "Figure 2.3.2") + 
   mapTheme()
 
-grid.arrange(apts_price, apts_qprice, 
-             ncol = 2, 
-             top = textGrob("Amsterdam Apartments", 
-                            gp=gpar(fontsize=20)))
 ```
 
-Finally comparing the bedroom size between our two datasets, we see that Airbnb's have a higher share of one-bedroom units than the long-term apartment dataset.  This would have us believe that smaller units are more likely to be converted than larger units.
-
+Finally, comparing the apartment size by bedrooms between our two datasets, we see that Airbnbs have a higher share of one-bedroom units than the long-term apartment dataset.  This suggests that smaller units are more likely to be converted than larger units.
 ```{r}
 aribnb_beds <- airbnb.sf %>%
   filter(bedrooms < 4 & bedrooms > 0) %>%
   ggplot(., aes(bedrooms)) +
   geom_bar() +
   labs(title = "Short-Term",
-       subtitle = "Figure X.X") +
+       subtitle = "Figure 2.4.1") +
   plotTheme()
 
 apt_beds <- apartments.sf %>%
@@ -271,25 +236,22 @@ apt_beds <- apartments.sf %>%
   ggplot(., aes(bedrooms)) +
   geom_bar() + 
   labs(title = "Long-Term",
-       subtitle = "Figure X.X") + 
+       subtitle = "Figure 2.4.2") + 
   plotTheme()
 
-
-grid.arrange(aribnb_beds, apt_beds, 
-             ncol = 2, 
-             top = textGrob("Long-Term vs. Short-Term Units: Number of Bedrooms", 
+grid.arrange(aribnb_beds, apt_beds,
+             ncol = 2,
+             top = textGrob("Long-Term vs. Short-Term Units: Number of Bedrooms",
                             gp=gpar(fontsize=20)))
 ```
-nt and high nightly 
-Since our ultimate goal was to predict the short-term revenue for long-term rental apartments, we needed to combine the apartment and the Airbnb observations into a single dataset that would serve as the basis for our analysis.  While the Airbnb data is an incredibly rich dataset that provides detailed information on the housing type (care to rent a lighthouse, anyone?), household amenities, and past guestratings, this was not available for the long-term housing data. The only overlapping data was the price, the number of bedrooms, and location. Therefore, our foundational dataset, compiled in the following code was quite basic.
 
+Since our ultimate goal was to predict the short-term revenue for long-term rental apartments, we needed to combine the apartment and the Airbnb data into a single dataset that would serve as the basis for our analysis. While the Airbnb data is an incredibly rich dataset that provides detailed information on everything from past guest ratings to the housing type (care to rent a lighthouse, anyone?), this was not available for the long-term housing data. The only overlapping data were the price, the number of bedrooms, and location. Therefore, our foundational dataset, compiled in the following code was quite basic.
 ```{r message=FALSE, warning=FALSE}
 df <- rbind(airbnb.sf, apartments.sf)
 head(df)
 ```
 
-Given the limitations discussed  above, we decided to simplify our datatset and remove outlier units with a high bedroom coucost. We removed all units over 3 bedrooms and any unit that cost over $1000 per night.  Our final dataset included over 20 thousand observations, 19400 short-term rentals from Airbnb and 1,360 long-term rental from Pararius.
-
+Given these limitations, we decided to simplify our dataset and remove outlier units with a high count of bedrooms or high nightly cost. We removed all units over 3 bedrooms and any unit that cost over $1000 per night. Our final dataset included over 20 thousand observations: 19,400 short-term rentals from Airbnb and 1,360 long-term rental from Pararius.
 ```{r message=FALSE, warning=FALSE}
 #Remving outliers
 df <- subset(df, bedrooms < 4)
@@ -299,7 +261,7 @@ df <- subset(df, price < 1000)
 
 ### Outside Amenities
 
-We suplemented this base data with information pulled from Amsterdam's comprehensive Open Data Portal and features from OpenStreetMap. The following variables were ultimately incorporated into our final model.
+We supplemented this base data with information pulled from Amsterdam's comprehensive Open Data Portal and features from OpenStreetMap. The following variables were ultimately incorporated into our final model and their spatial distribution is summarized in the below Figure 2.5.
 
 - Neighborhood Boundaries
 - Bike Stands
@@ -307,7 +269,6 @@ We suplemented this base data with information pulled from Amsterdam's comprehen
 - Historic Amsterdam-Binnen de Singelgracht district
 - Brothels
 - Restaurants
-
 ```{r data pull 2, message=FALSE, warning=FALSE}
 #---Open Data Amsterdam
 bikestands <- st_read("https://maps.amsterdam.nl/open_geodata/geojson.php?KAARTLAAG=FIETSTAXI_STANDPLAATSEN&THEMA=fietstaxi", quiet = TRUE) %>%
@@ -365,6 +326,42 @@ restaurants.sf <- restaurants %>%
   st_transform('EPSG:28992') %>%
   distinct() %>%
   st_centroid()
+
+#Outside spatial amenities
+plot_nhoods <- ggplot() + 
+  geom_sf(data = nhoods.sf, color = "red", fill = "grey60") + 
+  labs(title = "Neighborhoods") +
+  mapTheme()
+plot_bikestands <- ggplot() + 
+  geom_sf(data = nhoods.sf, color = "white", fill = "grey60") + 
+  geom_sf(data = bikestands.sf, color = "red") + 
+  labs(title = "Bike Stands") +
+  mapTheme()
+plot_hist <- ggplot() + 
+  geom_sf(data = nhoods.sf, color = "white", fill = "grey60") + 
+  geom_sf(data = Ams_Binnen.sf, fill = "red") + 
+  labs(title = "Historic District") +
+  mapTheme()
+plot_bikerentals <- ggplot() + 
+  geom_sf(data = nhoods.sf, color = "white", fill = "grey60") + 
+  geom_sf(data = bikerental.sf, color = "red") + 
+  labs(title = "Bike Rentals") +
+  mapTheme()
+plot_brothels <- ggplot() + 
+  geom_sf(data = nhoods.sf, color = "white", fill = "grey60") + 
+  geom_sf(data = brothels.sf, color = "red") + 
+  labs(title = "Brothels") +
+  mapTheme()
+plot_restaurants <- ggplot() + 
+  geom_sf(data = nhoods.sf, color = "white", fill = "grey60") + 
+  geom_sf(data = restaurants.sf, color = "red") + 
+  labs(title = "Restaurants") +
+  mapTheme()
+
+grid.arrange(plot_nhoods, plot_bikerentals, plot_bikestands, plot_brothels, plot_hist, plot_restaurants, 
+             ncol = 3, 
+             top = textGrob("Spatial Amenities, Figure 2.5", 
+                            gp=gpar(fontsize=20)))
 ```
 
 We incorporated the outside data to our base dataset by generating nearest neighbor variables to understand the amenity's proximity to each location. 
@@ -387,8 +384,6 @@ df <-
         AmsBinnen_nn = nn_function(st_coordinates
                                    (st_centroid(df)), 
                                    st_coordinates(st_centroid(Ams_Binnen.sf)), 1))
-
-head(df)
 ```
 
 ### Spatial Process
@@ -399,13 +394,10 @@ coords <- st_coordinates(df)
 neighborList10 <- knn2nb(knearneigh(coords, 10))
 spatialWeights10 <- nb2listw(neighborList10, style="W")
 df$lagPrice10 <- lag.listw(spatialWeights10, df$price)
-
-head(df)
 ```
 
 Another important spatial variable incorporated into our model was the categorical neighborhood variable. Since the neighborhood boundaries in Amsterdam are fairly small, this ultimately became a very significant variable in our model and may have outweighed other amenity information that we tried to include.  
-
-```{r}
+```{r neighborhood, message=FALSE, warning=FALSE}
 #Joining neighborhood data
 df <- st_join(df, nhoods.sf) %>%
   rename(neighborhood = Buurtcombinatie) %>%
@@ -416,8 +408,7 @@ df <- st_join(df, nhoods.sf) %>%
 
 ### Housing Characteristics
 
-As we mentioned before, most Airbnb datapoints were unfortunately not available to use in this analysis, even though many were potentially signficant in predicting the price. Though  not a perfect solution we reversed engineered certain numeric Airbnb variables based on the number of bedrooms in an apartment.  For example, we determined the average number of guests, bathrooms, and beds for units in each bedroom group and created a variable to represent those average numbers. While we attempted to engineer a handful of Airbnb variables which are shown in Table X below, the number of guests a unit accomodated was ultimately the only signficant variable incorporated into our model.
-
+As previously mentioned, most Airbnb data points were unfortunately not available to use in this analysis, even though many were potentially significant in predicting the price. Though  not a perfect solution, we reversed engineered certain numeric Airbnb variables based on the number of bedrooms in an apartment.  For example, we determined the average number of guests, bathrooms, and beds for units in each bedroom group and created a variable to represent those average numbers. While we attempted to engineer a handful of Airbnb variables which are shown in Table 2.1 below, the number of guests a unit could accommodate was ultimately the only significant variable incorporated into our model.
 ```{r message=FALSE, warning=FALSE}
 airbnb %>% 
   filter(bedrooms >0 & bedrooms <4) %>%
@@ -426,7 +417,7 @@ airbnb %>%
   summarise(mean_accommodates = mean(accommodates),
             mean_beds = mean(beds, na.rm = TRUE),
             mean_baths = mean(bathrooms, na.rm = TRUE)) %>%
-  kable(caption = "Table X.X") %>%
+  kable(caption = "Table 2.1") %>%
   kable_styling()
 
 df <-
@@ -436,9 +427,8 @@ df <-
 
 ### Log Transformations
 
-Finally, much of our data was not normally distributed. We used the log transformations of the variables, which ultimately worked better in the model. And example of the log transformation is shown in Figure X.X below, where the transformed variable on the left has a stronger correlation with the price of the unit than the untransformed variable on the left.
-
-```{r message=FALSE, warning=FALSE}
+Finally, much of our data was not normally distributed, so we used the log transformations of the variables, which ultimately worked better in the model. An example of the log transformation is shown in Figure 2.6 below, where the log transformed variable on the right has a stronger correlation with the price of the unit than the untransformed variable on the right.
+```{r message=FALSE, warning=FALSE, attr.output='style="max-height: 300px;"'}
 df$logprice <- log(df$price)
 df$logrestaurants <- log(df$restaurants_nn)
 df$logbikestand <- log(df$bikestands_nn)
@@ -450,14 +440,10 @@ correlation.long <-
   st_drop_geometry(df) %>%
   filter(bedrooms < 6) %>%
   dplyr::select(price,
-                # restaurants_nn,
-                # logrestaurants,
-                # bikerental_nn,
+                bikerental_nn,
                 logbikerentals
                 ) %>%
   gather(Variable, Value, -price) 
-  
-pal
 
 correlation.cor <-
   correlation.long %>%
@@ -469,16 +455,16 @@ ggplot(correlation.long, aes(Value, price)) +
   geom_text(data = correlation.cor, aes(label = paste("r =", round(correlation, 2))),
             x=-Inf, y=Inf, vjust = 1.5, hjust = -.1) +
   geom_smooth(method = "lm", se = FALSE, colour = "red") +
-  facet_wrap(~Variable, ncol = 1, scales = "free") +
-  #labs(title = "Log Transformation Examples") +
+  facet_wrap(~Variable, ncol = 2, scales = "free") +
+  labs(title = "Log Example: Bike Rental Nearest Neighbors",
+       subtitle = "Figure 2.6") +
   plotTheme()
 ```
 
 ### Exploratory Analysis 
 
-Our final selection of variables, represented in the below corrplot, show that the housing characteristics and spatial variables have a positive relationship with housing price while the amenity variables, based on nearest neighbor distances, have a negative correlation with price. This makes sense as the farther a unit is located from the amenity, the lower the price.
-
-```{r message=FALSE, warning=FALSE}
+Our final selection of variables, represented in the below correlation plot in Figure 2.7, show that the housing characteristics and spatial variables have a positive relationship with housing price while the amenity variables, based on nearest neighbor distances, have a negative correlation with price. This makes sense as the farther a unit is located from the amenity, the lower the price.
+```{r message=FALSE, warning=FALSE, warning=FALSE, attr.output='style="max-height: 300px;"'}
 numericVars <-
   select_if(df, is.numeric) %>%
   st_drop_geometry() %>%
@@ -502,19 +488,19 @@ ggcorrplot(
   type="lower",
   insig = "blank") +
   labs(title = "Correlation across numeric variables",
-       subtitle = "Figure X.X")
-
+       subtitle = "Figure 2.7")
 ```
 
-#Mention neighborhoods
+The final set of variables is shown below.
+```{r}
+head(df)
+```
 
 ## 3. Methods
 
 ### OLS Regression
-
 Filtering out the long-term rentals and splitting our data into separate training and testing datasets, we ran an OLS regression to predict the nightly rental price of each unit. The results of the regression are summarized in the table below. 
-
-```{r attr.output='style="max-height: 300px;"'}
+```{r OLS, message=FALSE, warning=FALSE, attr.output='style="max-height: 300px;"'}
 df_reg <- subset(df, Type == "Short-Term")
 
 #Setting up test and training datasets
@@ -545,14 +531,13 @@ reg1 <- lm(price ~ ., data = st_drop_geometry(df.training) %>%
 stargazer(
   reg1,
   type = "text",
-  title = "Linear Model Summary Table",
+  title = "Linear Model Summary Table, Table 3.1",
   dep.var.caption = " ",
   dep.var.labels = "Model Features")
 ```
 
-The model has a relatively low Adjusted R Square, likely due to the limited housing characteristic information we could include. When we review the model's error terms by applying the algorithm to the test set, we calculate a Mean Average Error (MAE) of about \$44 and the Mean Average Percent Error (MAPE) of 30%.  The error terms are summarized in the below table. While the model still struggles with accuracy, this  is an improvement on our beta model presented in class, which had a MAE of about $240 and a 70% MAPE. We attribute these improvements primarily to removing outliers in the dataset and log transforming our variables.
-
-```{r}
+The model has a relatively low Adjusted R Square, likely due to the limited housing characteristic information we were able to include. When we review the model's error terms by applying the algorithm to the test set, we calculate a Mean Average Error (MAE) of about \$44 and the Mean Average Percent Error (MAPE) of 30%. The error terms are summarized in Table 3.2. While the model still struggles with accuracy, this  is an improvement on our beta model previously presented in class, which had a MAE of about $240 and a 70% MAPE. We attribute these improvements primarily to removing outliers in the dataset and log transforming our variables.
+```{r message=FALSE, warning=FALSE}
 df.test <-
   df.test %>%
   mutate(Regression = "Baseline Regression",
@@ -569,18 +554,15 @@ ErrorTable <-
 
 ErrorTable %>%
   st_drop_geometry() %>%
-  kable(caption = "MAE and MAPE for Test Set Data") %>%
+  kable(caption = "MAE and MAPE for Test Set Data, Table 3.2") %>%
   kable_styling()
 
 ```
 
 ### Cross Validation
 
-While there are undoubtedly issues with the model's accuracy the model seems to be fairly generalizable with the majority of errors clustered between \$40 and \$50 dollars and the average MAE and R squared being very similar to the outputs from our original model. Figure X.X show the distribution of errors across the 100 folds.  
-
-DO WE WANT TO INCLUDE STANDARD DEVIATION?
-
-```{r}
+While there are undoubtedly issues with the model's accuracy the model seems to be fairly generalizable with the majority of errors clustered between \$40 and \$50 dollars and the average MAE and R squared being very similar to the error terms from on our test set. Figure 3.1 show the distribution of errors across the 100 folds.  
+```{r message=FALSE, warning=FALSE}
 fitControl <- trainControl(method = "cv", 
                            number = 100,
                            savePredictions = TRUE)
@@ -598,19 +580,16 @@ reg1.cv
 #Standard Deviation and Histogram of MAE
 reg1.cv.resample <- reg1.cv$resample
 
-sd(reg1.cv.resample$MAE)
-
 ggplot(reg1.cv.resample, aes(x=MAE)) + geom_histogram(color = "grey40", fill = "#232761ff", bins = 50) + 
   labs(title="Histogram of Mean Average Error Across 100 Folds",
-       subtitle = "Figure X.X") +
+       subtitle = "Figure 3.1") +
   plotTheme()
 ```
 
 ### 4. Results & Findings
 
-With the final model tested and trained we next predicted the short-term revenue potential for the long-term apartment dataset. The following lines of code apply the predictive model to the apartment data to predict a nightly price, transform the value into monthly revenue and calculate the absolute and percent difference. The output of this analysis are shown in the maps in below.
-
-```{r}
+With the final model tested and trained we next predicted the short-term revenue potential for the long-term apartment dataset. The following code applies the predictive model to the apartment data to predict a nightly price, transform the value into monthly revenue and calculate the absolute and percent difference. The output of this analysis are shown in Figures 4.1.1 and 4.1.2 below.
+```{r message=FALSE, warning=FALSE}
 df$predict <- predict(reg1, newdata = df)
 df$monthlyprice <- df$price*30
 df$monthlypred <- df$predict*30
@@ -619,51 +598,49 @@ df$pctdiff <- df$absdiff / df$monthlyprice
 
 longterm <- df %>% filter(Type == "Long-Term")
 
-Pct_diff <- ggplot() +
+ggplot() +
   geom_sf(data = nhoods) +
   geom_sf(data = longterm, aes(colour = q5(pctdiff)), size = .9) +
   scale_color_manual(values = pal) +
-  labs(title = "Percent Difference") + 
+  labs(title = "Percent Difference in Long-Term & \nShort-Term Revenue",
+       subtitle = "Figure 4.1.1") + 
   mapTheme()
 
-Abs_diff <- ggplot() +
+ggplot() +
   geom_sf(data = nhoods, fill = "grey60") +
   geom_sf(data = longterm, aes(colour = q5(absdiff)), size = .9) +
   scale_color_manual(values = pal) +
-  labs(title = "Absolute Diference") + 
+  labs(title = "Absolute Difference in Long-Term & \nShort-Term Revenue",
+       subtitle = "Figure 4.1.2") + 
   mapTheme()
 
-grid.arrange(Pct_diff, Abs_diff, 
-             ncol = 2, 
-             top = textGrob("Difference Between Long-Term & Short-Term Rental Revenue", 
-                            gp=gpar(fontsize=20)))
 ```
 
-Though our model has issues with accuracy, these findings make sense. They show that apartments closest to the central core of Amsterdam, a particularly desirable area for tourists, have the largest difference in revenue between short-term and long-term rentals. Therefore, these central units are the most at risk for converting to short-term rentals.
+Though our model has issues with accuracy, the findings summarized in the above figures make sense. They show that apartments closest to the center of Amsterdam, a particularly desirable area for tourists, have the largest difference in revenue between short-term and long-term rentals. Therefore, these central units are the most at risk for converting to short-term rentals.
 
-Besides proximity to the central core, bedrooms also seem to play a role in generating a high-risk unit. The below Figure X.X shows that larger 2-bedroom and 3-bedroom units have a larger share of units in the top quintile of percent difference in revenue. Despite there being more 2- and 3- bedroom units available per our exploratory analysis, this finding suggests that owners have a greater incentive to convert these larger units to short-term rentals. They may therefore be at higher risk. This could have serious implications for families and larger households in Amsterdam seeking affordable housing, as owners of these larger units appear to have a greater upside in converting their units to short-term rentals.
-
-```{r}
-ggplot(df, aes(fill=q5(pctdiff), y=price, x=bedrooms)) + 
+Besides proximity to the central core, bedrooms also seem to play a role in generating a high-risk unit. The below Figure 4.2 shows that 2-bedroom and 3-bedroom units have a larger share of units in the top quintile of percent revenue difference. Counter to our assumption in the exploratory analysis where we observe that there are more 1-bedroom units available as short-term rental, this finding suggests that larger units may actually be a higher conversion risk as they stand to gain a larger percent increase in revenue by converting. This could have serious implications for families and larger households in Amsterdam seeking affordable housing.
+```{r message=FALSE, warning=FALSE}
+ggplot(longterm, aes(fill=q5(pctdiff), y=price, x=bedrooms)) + 
   geom_bar(position="fill", stat="identity") + 
   scale_fill_viridis(discrete = T)  + 
-  labs(title = "Percent Price Difference Quintile by Bedrooms in Unit",
-       subtitle = "Figure X.X") +
+  labs(title = "Percent Price Difference Quintile by Bedrooms in Long-Term Units",
+       subtitle = "Figure 4.2") +
   plotTheme()
-
 ```
 
 ## 5. Conclusions
-Through this analysis, we reveal that in Amsterdam, larger units closest to the city center show the greatest risk of conversion, with owners seeing on average a potential revenue increase of nearly 50% in revenue when converting their units to short-term rentals. This result is understandable because the city center typically hosts a plethora of tourist attractions and larger units can accommodate groups of travellers and command a higher price. 
+
+Through this analysis, we reveal that in Amsterdam, larger units closest to the city center show the greatest risk of conversion, with owners seeing on average a potential revenue increase of nearly 50% in revenue when converting their units to short-term rentals. This result is understandable because the city center typically hosts a plethora of tourist attractions and larger units can accommodate groups of travelers and command a higher price. 
 	
-This underlying algorithm for Fairbnb's website allows Amsterdam policymakers to identify units with large revenue gaps and helps proactively safeguard affordable housing for residents where Airbnb would have otherwise begun to dominate.  The accuracy of the model could be improved if more detailed information about long-term rentals' internal characteristics were available. In the Airbnb data, variables such as the number of beds, the number of guests the unit could accommodate, or the property type, were shown to have a strong correlation to rental price. However, with these key internal characteristics missing from the Pararius apartment data, the model’s accuracy in predicting equivalent Airbnb units was adversely affected. 
+This underlying algorithm for FAIRbnb's website allows Amsterdam policymakers to identify units with large revenue gaps and helps proactively safeguard affordable housing for residents where Airbnb would have otherwise begun to dominate. The accuracy of the model could be improved if more detailed information about long-term rentals' internal characteristics were available. In the Airbnb data, variables such as the number of beds, the actual number of guests the unit could accommodate, or the property type were shown to have a strong correlation to rental price. However, with these key internal characteristics missing from the Pararius long-term apartment data, the model’s accuracy in predicting equivalent Airbnb units was adversely affected. 
 
-Another wrinkle in the internal characteristic data is that many of this information simply is not available for long-term apartments and would be determined by the involvement of the host.  Guest reviews, for example, would not exist for long-term units that have no yet converted and would largely depend on the potential host's investment in the property. If they are highly motivated to create a top Airbnb destination, then they may be able to charge more for additional amenities and services.
+Another wrinkle in the internal characteristic data is that much of this information simply does not exist for long-term apartments. Guest reviews, for example, would not exist for long-term units that have not yet converted and would largely depend on the potential host's level of investment in the property. If they are highly motivated to create a top Airbnb listing, then they may be able to charge more for additional amenities and services. 
 
-In Amsterdam, these internal characteristics are particularly key to improving the model because Amsterdam’s amenities and public services are evenly distributed throughout the city. Being a well-served city,these amenity features were not as helpful in predicting a unit’s price as we initially hoped. In addition, the next iteration of the model could incorporate specific, popular landmarks and other tourist sites to help better capture the higher prices units next to these features could have. An additional consideration is including demogrpahic data into the analysis, which we are currently lacking.
+A final challenge with the model lacking the detailed internal characteristics is that the spatial amenity data was not as helpful as we hoped in predicting price. This is in part because Amsterdam is a relatively well-served city, so many of the services and amenities are evenly distributed throughout. Variables that we expected to be important, such as public transit and tree coverage, were ultimately dropped because they did not improve the model. Even restaurants, a typical draw for visitors are well dispersed throughout the city and therefore, not as strong of a predictor. Most spatial amenities that we did include largely overlapped with Amsterdam's center that heavily caters to visitors. An example of this is the brothels which are primarily located in the touristy red-light district near the city center.
 
-If these improvements are made, there is no doubt that local policymakers would be able to properly manage Airbnb usage and allow tourists to continue enjoying the city, but not at the expense of its native residents.
+To further improve the model, the next iteration could incorporate specific, popular landmarks and other tourist sites to help better capture the higher prices units near these features. An additional consideration is to include demographic data into the analysis, which we are currently lacking. With these improvements, we believe local policymakers would be able to properly manage Airbnb usage and allow both tourists and native residents to continue enjoying the city.
 
-[^1]: Kaggle
-[^2]: Pararius
-[^3]: Toward Data Science
+[^1]: Stone, Theodore. “Airbnb Is Getting Blamed for Amsterdam's Housing Crisis. So the City Council Is Going to War against Airbnb.” City Monitor, April 6, 2018. https://citymonitor.ai/economy/business/airbnb-getting-blamed-amsterdam-s-housing-crisis-so-city-council-going-war-against-airbnb. 
+[^2]: Bruin, Erik. “Airbnb Amsterdam,” December 11, 2018. https://www.kaggle.com/erikbruin/airbnb-amsterdam?select=listings.csv. 
+[^3]: “The Leading Rental Website in The Netherlands.” Accessed December 15, 2020. https://www.pararius.com/english. 
+[^4]: Villar, Brunna. “Machine Learning and Real State: Predicting Rental Prices in Amsterdam.” Medium. Towards Data Science, May 27, 2020. https://towardsdatascience.com/ai-and-real-state-renting-in-amsterdam-part-1-5fce18238dbc. 
